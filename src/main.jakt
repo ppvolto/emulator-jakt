@@ -1,0 +1,18 @@
+struct VM {
+    rom: [u8]
+    function load_file(path: String) throws -> VM {
+        mut file = File::open_for_reading(path)
+        let rom = file.read_all()
+        return VM(rom)
+    }
+}
+
+function main(args: [String]) {
+    guard args.size() > 1 else {
+        println("usage: riscvjact <path/to/file.rom>")
+        return 1
+    }
+    let path = args[0];
+    let vm = VM::load_file(path);
+
+}

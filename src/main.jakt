@@ -1,212 +1,80 @@
-enum Register {
-    zero // x00
-    ra // x01
-    sp // x02
-    gp // x03
-    tp // x04
-    t0 // x05
-    t1 // x06
-    t2 // x07
-    s0 // x08
-    s1 // x09
-    a0 // x10
-    a1 // x11
-    a2 // x12
-    a3 // x13
-    a4 // x14
-    a5 // x15
-    a6 // x16
-    a7 // x17
-    s2 // x18
-    s3 // x19
-    s4 // x20
-    s5 // x21
-    s6 // x22
-    s7 // x23
-    s8 // x24
-    s9 // x25
-    s10 // x26
-    s11 // x27
-    t3 // x28
-    t4 // x29
-    t5 // x30
-    t6 // x31
-    function index(this) -> i32 {
-        return this as! i32
-    }
-    function from_value(value: Value) -> Register {
-        return value.i32() as! Register
-    }
-}
-
-class Value {
-    value: u32
-
-    public function Zero() throws -> Value {
-        return Value(value: 0)
-    }
-
-    public function from(value: u32) throws -> Value {
-        return Value(value)
-    }
-
-    public function i32(this) -> i32 {
-        return .value as! i32
-    }
-
-    public function u32(this) -> u32 {
-        return .value
-    }
-
-    public function right_shift(this, anon bits: u32) throws -> Value {
-        return Value(value: ((.value as! i32) >> bits) as! u32)
-    }
-    public function left_shift(this, anon bits: u32) throws -> Value {
-        return Value(value: ((.value as! i32) << bits) as! u32)
-    }
-
-    public function unsined_right_shift(this, anon bits: u32) throws -> Value {
-        return Value(value: (.value >> bits))
-    }
-
-    public function unsined_lefr_shift(this, anon bits: u32) throws -> Value {
-        return Value(value: (.value << bits))
-    }
-
-    public function mask(this, mask: u32) throws -> Value {
-        return Value(value: (.value & mask))
-    }
-}
-
-class Address {
-    address: u32
-
-    public function Zero() throws -> Address {
-        return Address(address: 0)
-    }
-
-    public function from(address: u32) throws -> Address {
-        return Address(address)
-    }
-
-    public function i32(this) -> i32 {
-        return .address
-    }
-    public function u32(this) -> u32 {
-        return .address
-    }
-}
+import vm { RegisterController, Memory, Value, Address }
 
 enum Opcode {
-    LB(rd: Register, func3: Value, rs1: Register, imm: Value)
-    LH(rd: Register, func3: Value, rs1: Register, imm: Value)
-    LW(rd: Register, func3: Value, rs1: Register, imm: Value)
-    LBU(rd: Register, func3: Value, rs1: Register, imm: Value)
-    LHU(rd: Register, func3: Value, rs1: Register, imm: Value)
+    LB(rd: u64, func3: u64, rs1: u64, imm: Value)
+    LH(rd: u64, func3: u64, rs1: u64, imm: Value)
+    LW(rd: u64, func3: u64, rs1: u64, imm: Value)
+    LBU(rd: u64, func3: u64, rs1: u64, imm: Value)
+    LHU(rd: u64, func3: u64, rs1: u64, imm: Value)
     Unspecified(value: Value)
 }
 
 enum RegOp {
-    Read(rs: Register)
-    Write(rd: Register, value: Value)
+    Read(rs: u64)
+    Write(rd: u64, value: Value)
     Unspecified
 }
 
 enum MemoryOp {
-    ByteRead(address: Address, rd: Register)
-    HalfWordRead(address: Address, rd: Register)
-    WordRead(address: Address, rd: Register)
-    ByteUnsignedRead(address: Address, rd: Register)
-    HalfWordUnsignedRead(address: Address, rd: Register)
+    ByteRead(address: Address, rd: u64)
+    HalfWordRead(address: Address, rd: u64)
+    WordRead(address: Address, rd: u64)
+    ByteUnsignedRead(address: Address, rd: u64)
+    HalfWordUnsignedRead(address: Address, rd: u64)
     Unspecified
 }
 
 enum VMState {
-    Fetch(value: usize)
+    Fetch(value: Address)
     Decode(value: Value)
     Execute(value: Opcode)
     MemAccess(value: MemoryOp)
-    WriteBack(value: RegOp)
+    WriteBack(write: bool, rd: u64, value: Value)
 }
 
 struct VM {
-    rom: [u8]
-    pc: usize
-    registers: [Register:Value]
+    address: Address
+    programm: Memory
+    memory: Memory
+    registers: RegisterController,
     state: VMState
 
-    // function debug(this) {
-    //     println("{:4>x}: state:{}", .pc, .state);
-    // }
-
     function create() throws -> VM {
-        return VM(
-            rom: [],
-            pc: 0,
-            registers: [] as! [Register:Value]
-            state: VMState::Fetch(value: 0)
-        );
+        let registers = RegisterController::create();
+        let memory_size: usize = 1 * 1024 * 1024;
+        let memory = Memory::create(size: memory_size);
+        let programm = Memory::create(size: 0);
+        let rom_address = Address::from(value: Value::from_u64(value: 0));
+        let state = VMState::Fetch(value: rom_address);
+        return VM(address: Address::Zero(), programm, memory, registers, state);
     }
 
-    function load_file(mut this, path: String) throws {
-        mut file = File::open_for_reading(path)
-        .rom = file.read_all()
-    }
-
-    function read(this, address: Address) -> u8 {
-        return .rom[address.u32()] & 0xFF;
-    }
-
-    function read_halfword(this, address: Address) -> u16 {
-        mut val = 0u32;
-        for i in 0..2u32 {
-            val = (val << 8) | .rom[address.u32() + i]
-        }
-        return val & 0xFFFF;
-    }
-
-    function read_word(this, address: Address) -> u32 {
-        mut val = 0u32;
-        for i in 0..4u32 {
-            val = (val << 8) | .rom[address.u32() + i]
-        }
-        return val & 0xFFFFFFFF;
-    }
-
-    function read_reg(this, register_: Register) throws -> Value {
+    function read_reg(this, register_: u64) throws -> Value {
         return match register_ {
-            Register::zero => Value::Zero(),
-            else => {
-                return .registers[register_.index() -1]
-            },
+            0 => Value::from_i64(value: 0),
+            else => .registers.read_register(index: register_),
         }
     }
 
-    function write_reg(mut this, register_: Register, value: Value) throws {
-        return match register_ {
-            Register::zero => {},
-            else => {
-                .registers[register_.index() -1] = value
-            },
+    function write_reg(mut this, register_: u64, value: Value) throws {
+        if register_ == 0 {
+            return
         }
+        .registers.write_register(index: register_, value)
     }
 
-    function load_instruction(mut this, value: usize) throws {
-        // .pc = Value::from(value: value as! i32)
-        let address = Address::from(address: .pc as! u32)
-        println("{:x}: 0x{:0>8x}", .pc, .read_word(address))
-        // let inst = .read_word(address: value) as! u32
-        // println("{:0>4x}: 0x{:0>32b}", .pc, inst);
-        // .state = VMState::Decode(value: inst)
+    function load_instruction(mut this, value: Address) throws {
+        .address = value;
+        let address_value = .programm.read(address: value, size: 4);
+        .state = VMState::Decode(value: address_value)
     }
 
     function decode_itype(this, value: Value) throws -> Opcode {
-        let rd = Register::from_value(value:  value.unsined_right_shift(7).mask(mask: 0b11111))
-        let rs1 =  Register::from_value(value: value.unsined_right_shift(15).mask(mask: 0b11111))
-        let func3 = value.unsined_right_shift(12).mask(mask: 0b111)
-        let imm = value.right_shift(20)
-        // let imm = ((value as! i32) >> 20);
-        return match func3.u32() {
+        let rd = ((value.to_u64() >> 7) & 0b11111);
+        let rs1 = ((value.to_u64() >> 15) & 0b11111);
+        let func3 = (value.to_u64() >> 12) & 0b111;
+        let imm = Value::from_i64(value: value.to_i64() >> 20);
+        return match func3 {
             0b000 => Opcode::LB(rd, func3, rs1, imm),
             0b001 => Opcode::LH(rd, func3, rs1, imm),
             0b010 => Opcode::LW(rd, func3, rs1, imm),
@@ -217,8 +85,8 @@ struct VM {
     }
 
     function decode(mut this, value: Value) throws {
-        let opcode = value.mask(mask: 0b1111111)
-        let type = match opcode.u32() {
+        let opcode = value.to_i64() & 0b1111111
+        let type = match opcode {
             0b11 => .decode_itype(value),
             else => Opcode::Unspecified(value)
         }
@@ -226,14 +94,15 @@ struct VM {
     }
 
     function execute(mut this, value: Opcode) throws {
-        let result: MemoryOp = match value {
+        match value {
             Opcode::LB(rd, func3, rs1, imm)
                 | Opcode::LH(rd, func3, rs1, imm)
                 | Opcode::LW(rd, func3, rs1, imm)
                 | Opcode::LBU(rd, func3, rs1, imm)
                 | Opcode::LHU(rd, func3, rs1, imm) => {
-                let address =  Address::from(address: .read_reg(register_: rs1).u32() + imm.u32())
-                return match value {
+                let register_value = .read_reg(register_: rs1).to_i64() + imm.to_i64();
+                let address =  Address::from(value: Value::from_i64(value: register_value))
+                let result = match value {
                     Opcode::LB => MemoryOp::ByteRead(address, rd)
                     Opcode::LH => MemoryOp::HalfWordRead(address, rd)
                     Opcode::LW => MemoryOp::WordRead(address, rd)
@@ -241,44 +110,33 @@ struct VM {
                     Opcode::LHU => MemoryOp::HalfWordUnsignedRead(address, rd)
                     else => MemoryOp::Unspecified
                 }
+                .state = VMState::MemAccess(value: result)
             },
-            Opcode::Unspecified(value) => {
-                println("{:0>8x} opcode:unspecified({:0>7b})", .pc, value.unsined_right_shift(7))
-                return MemoryOp::Unspecified
-            }
+            else => {}
         }
-        .state = VMState::MemAccess(value: result)
     }
 
     function memory_access(mut this, value: MemoryOp) throws {
-        let result: RegOp = match value {
-            MemoryOp::ByteRead(address, rd)
-                | MemoryOp::HalfWordRead(address, rd)
-                | MemoryOp::WordRead(address, rd)
-                | MemoryOp::ByteUnsignedRead(address, rd)
-                | MemoryOp::HalfWordUnsignedRead(address, rd) => {
-                let address =  Address::from(address: .read_reg(register_: rd).u32())
-                let new_value: Value =  match value {
-                    MemoryOp::ByteRead => Value::from(value: ((((.read(address) as! u32) << 24) as! i32) >> 24) as !u32),
-                    MemoryOp::HalfWordRead => Value::from(value: ((((.read_halfword(address) as! u32) << 16) as! i32) >> 16) as !u32),
-                    MemoryOp::WordRead => Value::from(value: .read_word(address)),
-                    MemoryOp::ByteUnsignedRead => Value::from(value: .read(address) as! u32),
-                    MemoryOp::HalfWordUnsignedRead => Value::from(value: .read_halfword(address) as! u32),
-                    else => None
-                }
-                return RegOp::Write(rd, value: new_value)
-            }
-            else => RegOp::Unspecified
+        let size = match value {
+            MemoryOp::ByteRead | MemoryOp::ByteUnsignedRead => 8,
+            MemoryOp::HalfWordRead | MemoryOp::HalfWordUnsignedRead => 16,
+            MemoryOp::WordRead | else => 32
         }
-        .state = VMState::WriteBack(value: result)
-    }
-
-    function write_back(mut this, value: RegOp) throws {
+        let address: Address = match value {
+            MemoryOp::ByteRead(address) | MemoryOp::ByteUnsignedRead(address)
+            | MemoryOp::HalfWordRead(address) | MemoryOp::HalfWordUnsignedRead(address)
+            | MemoryOp::WordRead(address) => address
+            else => Address::Zero()
+        }
+        let memory_value = .memory.read(address: address, size: size as! u64);
         match value {
-            RegOp::Write(rd, value) => .write_reg(register_: rd, value)
-            else => println("Invalid RegOp: {}", value)
+            MemoryOp::ByteRead(rd) | MemoryOp::ByteUnsignedRead(rd)
+            | MemoryOp::HalfWordRead(rd) | MemoryOp::HalfWordUnsignedRead(rd)
+            | MemoryOp::WordRead(rd) => {
+                .state = VMState::WriteBack(write: true, rd, value: memory_value)
+            }
+            else => {}
         }
-        .state = VMState::Fetch(value: .pc + 4)
     }
 
     function cylce(mut this) throws {
@@ -287,8 +145,20 @@ struct VM {
             Decode(value) => .decode(value),
             Execute(value) => .execute(value),
             MemAccess(value) => .memory_access(value),
-            WriteBack(value) => .write_back(value),
+            WriteBack(write, rd, value) => {
+                if write {
+                    .write_reg(register_: rd, value)
+                }
+                let next_address = Value::from_u64(value: .address.value.to_u64() + 4)
+                .state = VMState::Fetch(value: Address::from(value: next_address))
+            }
         }
+    }
+
+    function debug(this) {
+        println("{:0>4x}:  ", .address.value.to_u32())
+        println("reg:   {}", .registers.value);
+        println("state: {}", .state);
     }
 }
 
@@ -299,8 +169,12 @@ function main(args: [String]) {
     }
     let path = args[0];
     mut vm = VM::create();
-    vm.load_file(path);
-    vm.cylce()
+    vm.programm.from_file(path)
+    print("programm: ")
+    vm.programm.debug(print_content: false)
+    vm.debug()
+    // vm.cylce()
+    // vm.cylce()
     // for _ in 0..7 {
 
     // }

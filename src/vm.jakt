@@ -1,0 +1,145 @@
+struct Value {
+    value: i64
+
+    function from_u8(value: u8) throws -> Value {
+        let value_u64 = value as! u64;
+        let value_i64 = (value_u64 << 56) as! i64
+        return Value(value: value_i64 >> 56)
+    }
+
+    function to_u8(this) -> u8 {
+        let return_value = (.value << 56) as! u64;
+        return (return_value >> 56) as! u8
+    }
+
+    function from_i8(value: i8) throws -> Value {
+        let value_u64 = value as! u64;
+        let value_i64 = ((value_u64 as! u64) << 56) as! i64
+        return Value(value: value_i64 >> 56)
+    }
+
+    function to_i8(this) -> i8 {
+        let return_value = (.value << 56) as! u64;
+        return (return_value >> 56) as! i8
+    }
+
+    function from_u16(value: u16) throws -> Value {
+        let value_u64 = value as! u64;
+        let value_i64 = (value_u64 << 48) as! i64
+        return Value(value: value_i64 >> 48)
+    }
+
+    function to_u16(this) -> u16 {
+        let return_value = (.value << 48) as! u64;
+        return (return_value >> 48) as! u16
+    }
+
+    function from_i16(value: i16)  throws -> Value {
+        let value_u64=value as!u64;
+        let value_i64=(value_u64<<48)as!i64
+        return Value(value: value_i64>>48)
+    }
+
+    function to_i16(this) -> i16 {
+        let return_value = (.value << 48) as! u64;
+        return (return_value >> 48) as! i16
+    }
+
+    function from_u32(value: u32) throws -> Value {
+        let value_u64 = value as! u64;
+        let value_i64 = (value_u64 << 48) as! i64
+        return Value(value: value_i64 >> 48)
+    }
+
+    function to_u32(this) -> u32 {
+        let return_value = (.value << 32) as! u64;
+        return (return_value >> 32) as! u32
+    }
+
+    function from_i32(value: i32) throws -> Value {
+        let value_u64=(value as! u64);
+        let value_i64=(value_u64<<32) as! i64
+        return Value(value: value_i64>>32)
+    }
+
+    function to_i32(this) -> i32 {
+        let return_value = (.value << 32) as! u64;
+        return (return_value >> 32) as! i32
+    }
+
+    function from_u64(value: u64) throws -> Value {
+        let value_i64 = value as! i64;
+        return Value(value: value_i64 >> 48)
+    }
+
+    function to_u64(this) -> u64 {
+        return .value as! u64
+    }
+
+    function from_i64(value: i64) throws -> Value {
+        return Value(value: value)
+    }
+
+    function to_i64(this) -> i64 {
+        return .value as! i64
+    }
+
+}
+
+struct Address {
+    value: Value
+
+    function Zero() throws -> Address {
+        return Address(value: Value::from_i64(value: 0))
+    }
+
+    function from(value: Value) throws -> Address {
+        return Address(value)
+    }
+}
+
+struct Memory {
+    value: [u8]
+    function create(size: usize) throws -> Memory {
+        return Memory(value: [0u8;size])
+    }
+
+    function from_file(mut this, path: String) throws {
+        mut file = File::open_for_reading(path)
+        .value = file.read_all()
+    }
+
+    function read(this, address: Address, size: u64) throws -> Value {
+        let base_address = address.value.to_u64();
+        let memory_size = .value.size() as! u64;
+        if memory_size <= 0 {
+            throw Error::from_errno(0)
+        }
+        mut value = 0u64
+        for i in 0..size {
+            let memory_address = (base_address + i) % memory_size;
+            value = (value << 8) | .value[memory_address]
+        }
+        return Value::from_u64(value)
+    }
+
+    function debug(this, print_content: bool) {
+        println("Size: {}", .value.size())
+        if print_content {
+            println("Content: {}", .value)
+        }
+    }
+}
+
+struct RegisterController {
+    value: [Value]
+    function create() throws -> RegisterController {
+        return RegisterController(value: []);
+    }
+    function read_register(this, index: u64) -> Value {
+        return .value[index]
+    }
+    function write_register(mut this, index: u64, value: Value) {
+        .value[index] = value
+    }
+}

@@ -1,78 +1,109 @@
-import vm { RegisterController, Memory, Value, Address }
+import vm { ProgrammBuffer, Value }
 
 enum Opcode {
-    LB(rd: u64, func3: u64, rs1: u64, imm: Value)
-    LH(rd: u64, func3: u64, rs1: u64, imm: Value)
-    LW(rd: u64, func3: u64, rs1: u64, imm: Value)
-    LBU(rd: u64, func3: u64, rs1: u64, imm: Value)
-    LHU(rd: u64, func3: u64, rs1: u64, imm: Value)
+    LB(rd: usize, func3: usize, rs1: usize, imm: Value)
+    LH(rd: usize, func3: usize, rs1: usize, imm: Value)
+    LW(rd: usize, func3: usize, rs1: usize, imm: Value)
+    LBU(rd: usize, func3: usize, rs1: usize, imm: Value)
+    LHU(rd: usize, func3: usize, rs1: usize, imm: Value)
     Unspecified(value: Value)
 }
 
 enum RegOp {
-    Read(rs: u64)
-    Write(rd: u64, value: Value)
+    Read(rs: usize)
+    Write(rd: usize, value: Value)
     Unspecified
 }
 
 enum MemoryOp {
-    ByteRead(address: Address, rd: u64)
-    HalfWordRead(address: Address, rd: u64)
-    WordRead(address: Address, rd: u64)
-    ByteUnsignedRead(address: Address, rd: u64)
-    HalfWordUnsignedRead(address: Address, rd: u64)
+    ByteRead(address: Value, rd: usize)
+    HalfWordRead(address: Value, rd: usize)
+    WordRead(address: Value, rd: usize)
+    ByteUnsignedRead(address: Value, rd: usize)
+    HalfWordUnsignedRead(address: Value, rd: usize)
     Unspecified
 }
 
 enum VMState {
-    Fetch(value: Address)
+    Fetch(address: Value)
     Decode(value: Value)
     Execute(value: Opcode)
     MemAccess(value: MemoryOp)
-    WriteBack(write: bool, rd: u64, value: Value)
+    WriteBack(write: bool, rd: usize, value: Value)
 }
 
-struct VM {
-    address: Address
-    programm: Memory
-    memory: Memory
-    registers: RegisterController,
+class VM {
+    address: Value
+    programm: ProgrammBuffer
+    memory: [Value]
+    registers: [Value],
     state: VMState
+    pc: usize
 
-    function create() throws -> VM {
-        let registers = RegisterController::create();
-        let memory_size: usize = 1 * 1024 * 1024;
-        let memory = Memory::create(size: memory_size);
-        let programm = Memory::create(size: 0);
-        let rom_address = Address::from(value: Value::from_u64(value: 0));
-        let state = VMState::Fetch(value: rom_address);
-        return VM(address: Address::Zero(), programm, memory, registers, state);
+    public function create() throws -> VM {
+        let registers = [Value::from_u64(value: 0); 32];
+        let memory = [Value::from_u64(value: 0); 1 * 1024 * 1024];
+        let address = Value::from_u64(value: 0);
+        let programm = ProgrammBuffer::create(buffer: []);
+        let state = VMState::Fetch(address: address);
+        return VM(address: address, programm, memory: [], registers, state, pc: 0);
     }
 
-    function read_reg(this, register_: u64) throws -> Value {
+    public function programm_from_buffer(mut this, buffer: [u8]) throws {
+        let address = Value::from_u64(value: 0x10_00_00_00);
+        .programm.from_buffer(buffer)
+        .state = VMState::Fetch(address: address);
+    }
+
+
+    function read_reg(this, register_: usize) throws -> Value {
+        guard register_ >= 0 && register_ < .registers.size() else {
+            throw Error::from_errno(100001)
+        }
         return match register_ {
-            0 => Value::from_i64(value: 0),
-            else => .registers.read_register(index: register_),
+            0 => Value::from_u32(value: 0),
+            else => .registers[register_ - 1],
         }
     }
 
-    function write_reg(mut this, register_: u64, value: Value) throws {
-        if register_ == 0 {
-            return
+    function write_reg(mut this, register_: usize, value: Value) throws {
+        guard register_ >= 0 && register_ < .registers.size() else {
+            throw Error::from_errno(100002)
         }
-        .registers.write_register(index: register_, value)
+        .registers[register_] = value
     }
 
-    function load_instruction(mut this, value: Address) throws {
-        .address = value;
-        let address_value = .programm.read(address: value, size: 4);
-        .state = VMState::Decode(value: address_value)
+    function read_address(this, address: Value) throws -> Value {
+        let internal_address = address.to_u64() as! usize;
+        guard internal_address >= 0 else {
+            throw Error::from_errno(200001)
+        }
+        let masked_address = internal_address & 0xFF_FF_FF;
+        if (internal_address & 0x10_00_00_00) == 0x10_00_00_00 {
+            let lower_parcel = .programm.read(address: masked_address, size: 32);
+            let upper_parcel = .programm.read(address: masked_address + 32, size: 32);
+            // println("0b{:0>32b}", lower_parcel.to_u32());
+            println("0b{:0>32b}", lower_parcel.to_u32());
+            println("0b{:0>32b}", upper_parcel.to_u32());
+            // return Value::from_u32(value: lower_parcel)///* | (upper_parcel << 16))
+            return Value::from_i16(value: 0)
+        }
+        if (internal_address & 0x20_00_00_00) == 0x20_00_00_00 {
+            return .memory[masked_address]
+        }
+        return Value::from_u64(value: 0)
+    }
+
+    function load_instruction(mut this, address: Value) throws {
+        let content = .read_address(address)
+        .address = address;
+        .state = VMState::Decode(value: content)
     }
 
     function decode_itype(this, value: Value) throws -> Opcode {
-        let rd = ((value.to_u64() >> 7) & 0b11111);
-        let rs1 = ((value.to_u64() >> 15) & 0b11111);
-        let func3 = (value.to_u64() >> 12) & 0b111;
+        let rd = ((value.to_u64() >> 7) & 0b11111) as! usize;
+        let rs1 = ((value.to_u64() >> 15) & 0b11111) as! usize;
+        let func3 = ((value.to_u64() >> 12) & 0b111) as! usize;
         let imm = Value::from_i64(value: value.to_i64() >> 20);
         return match func3 {
             0b000 => Opcode::LB(rd, func3, rs1, imm),
@@ -101,7 +132,7 @@ struct VM {
                 | Opcode::LBU(rd, func3, rs1, imm)
                 | Opcode::LHU(rd, func3, rs1, imm) => {
                 let register_value = .read_reg(register_: rs1).to_i64() + imm.to_i64();
-                let address =  Address::from(value: Value::from_i64(value: register_value))
+                let address =  Value::from_i64(value: register_value)
                 let result = match value {
                     Opcode::LB => MemoryOp::ByteRead(address, rd)
                     Opcode::LH => MemoryOp::HalfWordRead(address, rd)
@@ -122,26 +153,26 @@ struct VM {
             MemoryOp::HalfWordRead | MemoryOp::HalfWordUnsignedRead => 16,
             MemoryOp::WordRead | else => 32
         }
-        let address: Address = match value {
+        let address: Value = match value {
             MemoryOp::ByteRead(address) | MemoryOp::ByteUnsignedRead(address)
             | MemoryOp::HalfWordRead(address) | MemoryOp::HalfWordUnsignedRead(address)
             | MemoryOp::WordRead(address) => address
-            else => Address::Zero()
+            else => Value::from_u8(value: 0)
         }
-        let memory_value = .memory.read(address: address, size: size as! u64);
+        let read_value = .read_address(address)
         match value {
             MemoryOp::ByteRead(rd) | MemoryOp::ByteUnsignedRead(rd)
             | MemoryOp::HalfWordRead(rd) | MemoryOp::HalfWordUnsignedRead(rd)
             | MemoryOp::WordRead(rd) => {
-                .state = VMState::WriteBack(write: true, rd, value: memory_value)
+                .state = VMState::WriteBack(write: true, rd, value: read_value)
             }
             else => {}
         }
     }
 
-    function cylce(mut this) throws {
+    public function cylce(mut this) throws {
         match .state {
-            Fetch(value) => .load_instruction(value),
+            Fetch(address) => .load_instruction(address),
             Decode(value) => .decode(value),
             Execute(value) => .execute(value),
             MemAccess(value) => .memory_access(value),
@@ -149,31 +180,47 @@ struct VM {
                 if write {
                     .write_reg(register_: rd, value)
                 }
-                let next_address = Value::from_u64(value: .address.value.to_u64() + 4)
-                .state = VMState::Fetch(value: Address::from(value: next_address))
+                let address = Value::from_i64(value: .address.value + 4)
+                .state = VMState::Fetch(address: address)
             }
         }
     }
 
-    function debug(this) {
-        println("{:0>4x}:  ", .address.value.to_u32())
-        println("reg:   {}", .registers.value);
-        println("state: {}", .state);
+    public function debug(this) {
+        match .state {
+            Fetch(address) => {
+                println("{:0>8x}:address: 0x{:0>32b}", .pc, address.to_u64());
+            },
+            Decode(value) => {
+                println("{:0>8x}:value: 0x{:0>32b}", .pc, value.to_u64());
+            },
+            Execute(value) => {
+                println("{:0>8x}:execute: {}", .pc, value);
+            },
+            MemAccess(value) => {
+                println("{:0>8x}:mem_access: {}", .pc, value);
+            },
+            WriteBack(write, rd, value) => {
+                println("{:0>8x}:wb: write:{} reg:{}: 0x{:0>32b}", .pc, write, rd, value.to_u32());
+            }
+        }
     }
 }
 
 function main(args: [String]) {
-    guard args.size() > 1 else {
+    guard args.size() == 2 else {
         println("usage: riscvjact <path/to/file.rom>")
         return 1
     }
-    let path = args[0];
-    mut vm = VM::create();
-    vm.programm.from_file(path)
-    print("programm: ")
-    vm.programm.debug(print_content: false)
+    mut file = File::open_for_reading(args[1])
+    mut vm = VM::create()
+    vm.programm_from_buffer(buffer: file.read_all())
+    vm.debug()
+    vm.cylce()
     vm.debug()
     // vm.cylce()
+    // vm.debug()
+    // vm.debug()
     // vm.cylce()
     // for _ in 0..7 {
 
